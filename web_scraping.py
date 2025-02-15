@@ -2,44 +2,42 @@ import requests
 from bs4 import BeautifulSoup
 import csv
 
-"""
-This script demonstrates how to scrape raw HTML content from a website using the requests library and the BeautifulSoup library.
-"""
 # Making a request to the website
-
 url = "https://fbref.com/en/"
 response = requests.get(url)
-print(response.text) # prints the raw HTML content of the page
 
-# Parsing the raw HTML content using BeautifulSoup
+# Check if the request was successful
+if response.status_code == 200:
+    soup = BeautifulSoup(response.text, "lxml")
 
-soup = BeautifulSoup(response.text, "lxml")
-print(soup.prettify()) # prints the HTML content in a more readable format
+    # Extracting all links from the page
+    links = soup.find_all("a")
+    for link in links:
+        print(link.get("href"))
 
-# Extracting all links from the page
+    # Extract a specific element by class
+    element = soup.find("div", class_="example_class")
+    if element:
+        print(element.text)
 
-"""
-Locate specific elements on the page using CSS selectors or HTML tags
-"""
+    # Writing football data to a CSV file
+    with open("football_data.csv", mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Player", "Goals", "Assists"])
 
-links = soup.find_all("a") # finds all <a> tags in the HTML content
-for link in links:
-    print(link.get("href")) # prints the value of the "href" attribute for each link
-
-# Extract a specific element by class
-element = soup.find("div", class_="example_class")
-print(element.txt) # Extracts the text inside the element
-
-with open(football_data.csv, mode="w", newline="", encoding="utf-8") as file:
-    writer = csv.writer(file)
-    writer.writerow(["Player", "Goals", "Assists"])
-    # Extracting data from a table
-    table = soup.find("table", class_="stats_table")
-    rows = table.find_all("tr")
-    for row in rows:
-        data = row.find_all("td")
-        if len(data) > 0:
-            player = data[0].text
-            goals = data[1].text
-            assists = data[2].text
-            writer.writerow([player, goals, assists])
+        # Extracting data from a table
+        table = soup.find("table", class_="stats_table")
+        if table:
+            rows = table.find_all("tr")
+            for row in rows:
+                data = row.find_all("td")
+                if len(data) > 2:
+                    player = data[0].text.strip()
+                    goals = data[1].text.strip()
+                    assists = data[2].text.strip()
+                    writer.writerow([player, goals, assists])
+        else:
+            print("Table not found")
+else:
+    print(f"Failed to retrieve the page. Status code: {response.status_code}")
+           
