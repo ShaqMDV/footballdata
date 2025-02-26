@@ -1,4 +1,4 @@
-# Scrapy settings for footballers project
+# Scrapy settings for fbref_scraper project
 #
 # For simplicity, this file contains only settings considered important or
 # commonly used. You can find more settings consulting the documentation:
@@ -7,14 +7,14 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
-BOT_NAME = "footballers"
+BOT_NAME = "fbref_scraper"
 
-SPIDER_MODULES = ["footballers.spiders"]
-NEWSPIDER_MODULE = "footballers.spiders"
+SPIDER_MODULES = ["fbref_scraper.spiders"]
+NEWSPIDER_MODULE = "fbref_scraper.spiders"
 
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
-#USER_AGENT = "footballers (+http://www.yourdomain.com)"
+#USER_AGENT = "fbref_scraper (+http://www.yourdomain.com)"
 
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = True
@@ -45,13 +45,13 @@ ROBOTSTXT_OBEY = True
 # Enable or disable spider middlewares
 # See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 #SPIDER_MIDDLEWARES = {
-#    "footballers.middlewares.FootballersSpiderMiddleware": 543,
+#    "fbref_scraper.middlewares.FbrefScraperSpiderMiddleware": 543,
 #}
 
 # Enable or disable downloader middlewares
 # See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #DOWNLOADER_MIDDLEWARES = {
-#    "footballers.middlewares.FootballersDownloaderMiddleware": 543,
+#    "fbref_scraper.middlewares.FbrefScraperDownloaderMiddleware": 543,
 #}
 
 # Enable or disable extensions
@@ -63,7 +63,7 @@ ROBOTSTXT_OBEY = True
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
 #ITEM_PIPELINES = {
-#    "footballers.pipelines.FootballersPipeline": 300,
+#    "fbref_scraper.pipelines.FbrefScraperPipeline": 300,
 #}
 
 # Enable and configure the AutoThrottle extension (disabled by default)

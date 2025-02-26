@@ -1,32 +1,33 @@
-from bs4 import BeautifulSoup as soup
+from bs4 import BeautifulSoup as soup, Comment
 import requests
 import pandas as pd
 import time
-import re
-from functools import reduce
 import sys
 from urllib.error import HTTPError
 
-'''
-This program will get summary player data for each game played in the top 5 
-European football leagues from the website fbref.com
-'''
+"""
+This script scrapes seasonal player statistics (including goalkeeping, shooting, and advanced stats)
+for a selected league and season from FBRef.
+"""
+
+# Base URL
+base_url = "https://fbref.com"
+
+# Headers to mimic a real browser visit
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
 
 def get_data_info():
-    # all possible leagues and seasons
     leagues = ['Premier League', 'La Liga', 'Serie A', 'Ligue 1', 'Bundesliga']
-    seasons = [f"{year}-{year+1}" for year in range(1995, 2024)] # Generates season data for all years between '95 and '24
-    
+    seasons = [f"{year}-{year+1}" for year in range(2017, 2024)]  # xG data is only available from 2017
+
     while True:
-        # select league [Premier League / La Liga / Serie A / Ligue 1 / Bundesliga]
         league = input('Select League (Premier League / La Liga / Serie A / Ligue 1 / Bundesliga): ')
-        
-        # check if input valid
         if league not in leagues:
             print('League not valid, try again')
             continue
-            
-        # Assign URL names and ID's
+        
         league_mapping = {
             'Premier League': ('Premier-League', '9'),
             'La Liga': ('La-Liga', '12'),
@@ -34,135 +35,174 @@ def get_data_info():
             'Ligue 1': ('Ligue-1', '13'),
             'Bundesliga': ('Bundesliga', '20')
         }
-        
         league, league_id = league_mapping[league]
         break
-            
-    while True: 
-        # select season after 2017 as XG only available from 2017
-        """
-        This wont be included for the full analyis, it's more of a predictive factor - not conclusive of anything but potential
-        """
-        season = input(f'Select Season ({", ".join(seasons)}):')
-        
-        # check if input valid
+
+    while True:
+        season = input(f'Select Season ({", ".join(seasons)}): ')
         if season not in seasons:
             print('Season not valid, try again')
             continue
         break
 
-    url = f'https://fbref.com/en/comps/{league_id}/{season}/schedule/{season}-{league}-Scores-and-Fixtures'
+    url = f"https://fbref.com/en/comps/{league_id}/{season}/stats/{season}-{league}-Stats"
     return url, league, season
 
-
-def get_fixture_data(url, league, season):
-    print('Getting fixture data...')
-    # create empty data frame and access all tables in url
-    fixturedata = pd.DataFrame([])
-    tables = pd.read_html(url)
+def get_player_links(url):
+    print('Fetching player profile links...')
     
-    # get fixtures
-    # xG - expected goal(s) i.e. the probability of a goal being scored based on the location of the shooter, body part involved, type of attack and type of pass.
-    fixtures = tables[0][['Wk', 'Day', 'Date', 'Time', 'Home', 'Away', 'xG', 'xG.1', 'Score']].dropna()
-    fixtures['season'] = url.split('/')[6]
-    fixturedata = pd.concat([fixturedata,fixtures])
-    
-    # assign id for each game
-    fixturedata["game_id"] = fixturedata.index
-    
-    # export to csv file
-    fixturedata.reset_index(drop=True).to_csv(f'{league.lower()}_{season.lower()}_fixture_data.csv', 
-        header=True, index=False, mode='w')
-    print('Fixture data collected...')
+    html = requests.get(url, headers=headers)
+    if html.status_code != 200:
+        print("Failed to fetch the stats page!")
+        return []
+
+    page_soup = soup(html.content, "html.parser")
+
+    # Extract tables from HTML comments
+    for comment in page_soup.find_all(string=lambda text: isinstance(text, Comment)):
+        comment_soup = soup(comment, 'html.parser')
+        for table in comment_soup.find_all("table", id="stats_standard"):
+            page_soup.append(table)  # Append to the main page soup
+
+    player_links = []
+
+    # Find player profile links
+    for row in page_soup.select("table#stats_standard tbody tr"):
+        link_tag = row.find("th", {"data-stat": "player"}).find("a")
+        if link_tag:
+            player_links.append((link_tag.text, base_url + link_tag['href']))
+
+    if not player_links:
+        print("No player links found! The page structure might have changed.")
+    else:
+        print(f"Found {len(player_links)} players.")
+
+    return player_links
 
 
-def get_match_links(url, league):   
-    print('Getting player data...')
-    # access and download content from url containing all fixture links    
-    match_links = []
-    html = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-    links = soup(html.content, "html.parser").find_all('a')
-    
-    # filter list to return only needed links
-    key_words_good = ['/en/matches/', f'{league}']
-    for l in links:
-        href = l.get('href', '')
-        if all(x in href for x in key_words_good):
-            if 'https://fbref.com' + href not in match_links:                 
-                match_links.append('https://fbref.com' + href)
-    return match_links
+def extract_stat(row, stat):
+    """ Helper function to safely extract data from table rows """
+    cell = row.find(["th", "td"], {"data-stat": stat})
+    return cell.text.strip() if cell else "0"
 
+def scrape_player_stats(player_links, league, season):
+    print('Scraping player statistics...')
+    player_data = []
 
-def player_data(match_links, league, season):
-    # loop through all fixtures
-    player_data = pd.DataFrame([])
-    for count, link in enumerate(match_links):
-        try:
-            tables = pd.read_html(link)
-            for table in tables:
-                try:
-                    table.columns = table.columns.droplevel()
-                except Exception:
-                    continue
+    for count, (name, profile_url) in enumerate(player_links):
+        print(f"Scraping {name} ({count+1}/{len(player_links)})")
+        player_response = requests.get(profile_url, headers=headers)
 
-            # get player data
-            def get_team_1_player_data():
-                # outfield and goal keeper data stored in seperate tables 
-                data_frames = [tables[3], tables[9]]
-                
-                # merge outfield and goal keeper data
-                df = reduce(lambda left, right: pd.merge(left, right, 
-                    on=['Player', 'Nation', 'Age', 'Min'], how='outer'), data_frames).iloc[:-1]
-                
-                # assign a home or away value
-                return df.assign(home=1, game_id=count)
-
-            # get second teams  player data        
-            def get_team_2_player_data():
-                data_frames = [tables[10], tables[16]]
-                df = reduce(lambda left, right: pd.merge(left, right,
-                    on=['Player', 'Nation', 'Age', 'Min'], how='outer'), data_frames).iloc[:-1]
-                return df.assign(home=0, game_id=count)
-
-            # combine both team data and export all match data to csv
-            t1 = get_team_1_player_data()
-            t2 = get_team_2_player_data()
-            player_data = pd.concat([player_data, pd.concat([t1,t2]).reset_index()])
-            
-            print(f'{count+1}/{len(match_links)} matches collected')
-            player_data.to_csv(f'{league.lower()}_{season.lower()}_player_data.csv', 
-                header=True, index=False, mode='w')
-        except:
-            print(f'{link}: error')
-        # sleep for 3 seconds after every game to avoid IP being blocked
-        time.sleep(3)
-
-
-# main function
-def main(): 
-    url, league, season = get_data_info()
-    get_fixture_data(url, league, season)
-    match_links = get_match_links(url, league)
-    player_data(match_links, league, season)
-
-    # checks if user wants to collect more data
-    print('Data collected!')
-    while True:
-        answer = input('Do you want to collect more data? (yes/no): ')
-        if answer == 'yes':
-            main()
-        if answer == 'no':
-            sys.exit()
-        else:
-            print('Answer not valid')
+        if player_response.status_code != 200:
+            print(f"Failed to fetch {name}'s profile")
             continue
 
+        player_soup = soup(player_response.text, 'html.parser')
+
+        # Extract tables hidden inside HTML comments
+        for comment in player_soup.find_all(string=lambda text: isinstance(text, Comment)):
+            comment_soup = soup(comment, 'html.parser')
+            for table in comment_soup.find_all("table"):
+                player_soup.append(table)
+
+        # Define tables
+        stats_table = player_soup.find("table", id="stats_standard")
+        shooting_table = player_soup.find("table", id="stats_shooting")
+        keeper_table = player_soup.find("table", id="stats_keeper")
+        advanced_table = player_soup.find("table", id="stats_adv")
+
+        if stats_table:
+            for row in stats_table.find("tbody").find_all("tr"):
+                season_year = extract_stat(row, "season")
+                league_name = extract_stat(row, "league")
+                games = extract_stat(row, "games")
+                goals = extract_stat(row, "goals")
+                assists = extract_stat(row, "assists")
+
+                # Shooting stats
+                shots, shots_on_target, shot_accuracy, xg = "0", "0", "0", "0"
+                if shooting_table:
+                    shooting_row = shooting_table.find("tr", {"id": row.get("id")})
+                    if shooting_row:
+                        shots = extract_stat(shooting_row, "shots")
+                        shots_on_target = extract_stat(shooting_row, "shots_on_target")
+                        shot_accuracy = extract_stat(shooting_row, "shots_on_target_pct")
+                        xg = extract_stat(shooting_row, "xg")
+
+                # Goalkeeper stats
+                saves, clean_sheets, save_pct = "0", "0", "0"
+                if keeper_table:
+                    keeper_row = keeper_table.find("tr", {"id": row.get("id")})
+                    if keeper_row:
+                        saves = extract_stat(keeper_row, "saves")
+                        clean_sheets = extract_stat(keeper_row, "clean_sheets")
+                        save_pct = extract_stat(keeper_row, "save_pct")
+
+                # Advanced stats
+                xg_per_90, xa_per_90, pass_completion = "0", "0", "0"
+                if advanced_table:
+                    adv_row = advanced_table.find("tr", {"id": row.get("id")})
+                    if adv_row:
+                        xg_per_90 = extract_stat(adv_row, "xg_per90")
+                        xa_per_90 = extract_stat(adv_row, "xa_per90")
+                        pass_completion = extract_stat(adv_row, "passes_completed_pct")
+
+                # Store player stats
+                player_data.append({
+                    "Player": name,
+                    "Season": season_year,
+                    "League": league_name,
+                    "Games": games,
+                    "Goals": goals,
+                    "Assists": assists,
+                    "Shots": shots,
+                    "Shots on Target": shots_on_target,
+                    "Shot Accuracy %": shot_accuracy,
+                    "xG": xg,
+                    "Saves": saves,
+                    "Clean Sheets": clean_sheets,
+                    "Save %": save_pct,
+                    "xG per 90": xg_per_90,
+                    "xA per 90": xa_per_90,
+                    "Pass Completion %": pass_completion,
+                    "Profile URL": profile_url
+                })
+
+        time.sleep(2)  # Pause to avoid IP blocking
+
+    df = pd.DataFrame(player_data)
+    if not df.empty:
+        df.to_csv(f"{league.lower()}_{season.lower()}_player_stats.csv", index=False)
+        print("Data saved successfully!")
+    else:
+        print("No data was scraped! Check FBRef structure.")
+
+def main():
+    url, league, season = get_data_info()
+    player_links = get_player_links(url)
+    
+    if not player_links:
+        print("No player links found. Exiting...")
+        sys.exit()
+
+    scrape_player_stats(player_links, league, season)
+
+    print("Data collection complete!")
+
+    while True:
+        answer = input("Do you want to collect more data? (yes/no): ")
+        if answer.lower() == 'yes':
+            main()
+        elif answer.lower() == 'no':
+            sys.exit()
+        else:
+            print("Invalid answer, try again.")
 
 if __name__ == '__main__':
     try:
         main()
     except HTTPError:
-        print('The website refused access, try again later')
+        print("The website refused access, try again later")
         time.sleep(5)
 
 
