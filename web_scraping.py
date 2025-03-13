@@ -1,43 +1,34 @@
 import requests
 from bs4 import BeautifulSoup
-import csv
+import pandas as pd
 
 # Making a request to the website
-url = "https://fbref.com/en/"
-response = requests.get(url)
+url = "https://football.fandom.com/wiki/Lionel_Messi#Career_Statistics"
 
-# Check if the request was successful
-if response.status_code == 200:
-    soup = BeautifulSoup(response.text, "lxml")
+page = requests.get(url)
 
-    # Extracting all links from the page
-    links = soup.find_all("a")
-    for link in links:
-        print(link.get("href"))
+soup = BeautifulSoup(page.text, 'lxml')
+table = soup.find_all('table')[3]
 
-    # Extract a specific element by class
-    element = soup.find("div", class_="example_class")
-    if element:
-        print(element.text)
+world_titles = soup.find_all('th') # Pulling out just the headers
+world_table_titles = [title.text.strip() for title in world_titles] # looping through each header and retrieving its information
 
-    # Writing football data to a CSV file
-    with open("football_data.csv", mode="w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["Player", "Goals", "Assists"])
+"""
+When getting rid of the \n we can't just use strip() as we are working with a list
+Instead we must put it within the for loop after 'title.text' for it to work
+"""
+df = pd.DataFrame(columns= world_table_titles)
+df
 
-        # Extracting data from a table
-        table = soup.find("table", class_="stats_table")
-        if table:
-            rows = table.find_all("tr")
-            for row in rows:
-                data = row.find_all("td")
-                if len(data) > 2:
-                    player = data[0].text.strip()
-                    goals = data[1].text.strip()
-                    assists = data[2].text.strip()
-                    writer.writerow([player, goals, assists])
-        else:
-            print("Table not found")
-else:
-    print(f"Failed to retrieve the page. Status code: {response.status_code}")
-           
+column_data = table.find_all('tr')
+
+for row in column_data[6:23]:
+    row_data = row.find_all('td')
+    individual_row_data = [data.text.strip() for data in row_data]
+    
+    length = len(df)
+    df.loc[length] = individual_row_data # This returned a mismatch error, which could be the result of empty sets being produced when running the above for loop
+
+print(df)
+# alternatively
+# print (soup.find('table', class_ = "wikitable"))
